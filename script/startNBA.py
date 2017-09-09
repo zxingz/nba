@@ -66,6 +66,7 @@ class nbaMain():
             game.sendTelegram('Error occured: ' + str(error) + ' ' + str(fname) + ' ' + str(exc_tb.tb_lineno))
 
     def getBoxScoreEspn(self, date):
+        pass
 
 
     def sendTelegram(self, message):
