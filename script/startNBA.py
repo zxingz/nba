@@ -8,6 +8,9 @@ from selenium import webdriver
 import urllib.request
 from datetime import date, timedelta
 import re
+import plotly.offline as py
+import plotly.graph_objs as go
+from plotly import tools
 
 
 #main class
@@ -44,7 +47,7 @@ class nbaMain():
                     i += 15
                     currData = 'team1bench'
                     continue
-                if data[i + 3].find('DNP') != -1:
+                if data[i + 3].find('DNP') != -1 or data[i + 3].find('Did not') != -1:
                     i += 4
                     continue
                 if (data[i + 3].find('TEAM') != -1 or data[i].find('TEAM') != -1)and currTeam == 1:
@@ -155,7 +158,7 @@ class nbaMain():
 
     def insertGameDataDB(self, date, gameID):
         try:
-            db = sqliteDB(game.logger)
+            db = sqliteDB(self.logger)
             jsonData = self.loadGameDataJson(date, gameID)
             for row in jsonData["team1starters"]:
                 score = self.calculateScore(row)
@@ -225,17 +228,19 @@ class nbaMain():
                       str(score["DK"]["tripleDouble"]) + ',' + str(score["DK"]["total"]) + ',"' + str(row["position"]) + '","' + \
                       date + '",' + gameID + ',"' + jsonData["team1name"] + '")'
                 db.insert(cmd)
+            db.conn.close()
         except Exception as error:
+            db.conn.close()
             exc_type, exc_obj, exc_tb = sys.exc_info()
             fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
             self.logger.info("Error occured: " + str(error) + ' ' + str(fname) + ' ' + str(exc_tb.tb_lineno))
             raise Exception('Error !')
 
-    def getESPNboxScore(self, cdate):
+    def getESPNgameID(self, cdate):
         try:
             self.logger.info("getting game ids for date="+cdate)
             driver = webdriver.Chrome('./../../tools/chrome/chromedriver')
-            driver.set_page_load_timeout(30)
+            driver.set_page_load_timeout(60)
             sdate = date(int(cdate[0:4]), int(cdate[4:6]), int(cdate[6:8]))
             url = 'http://www.espn.com/nba/scoreboard/_/date/' + sdate.strftime('%Y%m%d')
             driver.get(url)
@@ -247,16 +252,9 @@ class nbaMain():
                 while source.find('/nba/boxscore?gameId=') != -1:
                     source = source[source.find('/nba/boxscore?gameId=') + 21:]
                     game_ids[source[:source.find('"')]] = True
-                for key in game_ids:
-                    text = str(urllib.request.urlopen('http://www.espn.com/nba/boxscore?gameId=' + key).read())
-                    text = text[text.find('<article class="boxscore'):]
-                    text = re.compile(r'<.*?>').sub('#', text[:text.find('</article>')]).replace('team', '')
-                    while text.find('##') != -1:
-                        text = text.replace('##', '#')
-                    text = text.split('#')
-                    del text[0:2]
-                    with open(os.environ.get('DATA_BASE') + '/' + cdate + '/' + key, 'w') as file:
-                        file.write('#'.join(text))
+            if game_ids.keys() != []:
+                with open(os.environ.get('DATA_BASE') + '/' + cdate + '/' + cdate + '_gameID', 'w') as file:
+                    file.write('\n'.join(game_ids.keys()))
             driver.close()
             return game_ids
         except Exception as error:
@@ -266,6 +264,143 @@ class nbaMain():
             driver.close()
             return {}
 
+    def getESPNboxScore(self, cdate):
+        try:
+            with open(os.environ.get('DATA_BASE') + '/' + cdate + '/' + cdate + '_gameID', 'r')as file:
+                game_ids = file.read().split('\n')
+            for key in game_ids:
+                text = str(urllib.request.urlopen('http://www.espn.com/nba/boxscore?gameId=' + key).read())
+                text = text[text.find('<article class="boxscore'):]
+                text = re.compile(r'<.*?>').sub('#', text[:text.find('</article>')]).replace('team', '')
+                while text.find('##') != -1:
+                    text = text.replace('##', '#')
+                text = text.split('#')
+                del text[0:2]
+                with open(os.environ.get('DATA_BASE') + '/' + cdate + '/' + key, 'w') as file:
+                    file.write('#'.join(text))
+        except Exception as error:
+            exc_type, exc_obj, exc_tb = sys.exc_info()
+            fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
+            self.logger.info("Error occured: " + str(error) + ' ' + str(fname) + ' ' + str(exc_tb.tb_lineno))
+            return {}
+
+    def generateGraphs(self, date, gameID):
+        try:
+            db = sqliteDB(self.logger)
+            result = db.fetch(
+                "select name || '-' || position || '-' || starter as name, position,team, starter,MINUTES,FD_3PT,FD_2PT,FD_FT,"
+                "FD_REBOUND,FD_BLOCK,FD_STEAL,FD_TO,FD_ASSISTS,FD_TOTAL,DK_3PT,DK_2PT,DK_FT,DK_REBOUND,DK_BLOCK,DK_STEAL,DK_TO,"
+                "DK_ASSISTS,DK_DOUBLEDOUBLE,DK_TRIPLEDOUBLE,DK_TOTAL from box_score where game_id = '"+str(gameID)+"'")
+            db.conn.close()
+            if result == []:
+                return
+            posColor = {'PF': 'rgb(230, 25, 75,0.8)', 'SF': 'rgb(128, 0, 0,0.8)', 'F': 'rgb(145, 30, 180,0.8)',
+                        'C': 'rgb(0, 130, 200,0.8)', 'G': 'rgb(60, 180, 75,0.8)', 'PG': 'rgb(128, 128, 0,0.8)',
+                        'SG': 'rgb(0, 128, 128,0.8)'}
+            statusColor = {0: 'rgb(255, 255, 255)', 1: 'rgb(0,0,0)'}
+            statMap = {'FD_3PT': 5, 'FD_2PT': 6, 'FD_FT': 7, 'FD_REBOUND': 8, 'FD_BLOCK': 9, 'FD_STEAL': 10,
+                       'FD_TO': 11, 'FD_ASSISTS': 12,'DK_3PT': 14, 'DK_2PT': 15, 'DK_FT': 16, 'DK_REBOUND': 17,
+                       'DK_BLOCK': 18, 'DK_STEAL': 19,'DK_TO': 20,'DK_ASSISTS': 21, 'DK_DOUBLEDOUBLE': 22,
+                       'DK_TRIPLEDOUBLE': 23}
+            for key in statMap:
+                teams = {}
+                teamCount = 0
+                traces = {1: [], 2: []}
+                self.logger.info('making graph for key='+key+' for gameID='+str(gameID))
+                for row in result:
+                    if row[2] not in teams.keys():
+                        teams[row[2]] = teamCount + 1
+                        teamCount += 1
+                    traces[teams[row[2]]].append(go.Scatter(
+                        x=[row[13]],
+                        y=[row[statMap[key]]],
+                        name=row[0] + '-' + row[2],
+                        text=row[0] + '-' + row[2],
+                        mode='markers',
+                        marker=dict(
+                            size=row[4],
+                            color=posColor[row[1]],
+                            line=dict(
+                                width=4,
+                                color=statusColor[row[3]]
+                            )
+                        )
+                    ))
+
+                fig = tools.make_subplots(rows=2, cols=1)
+                for row in traces[1]:
+                    fig.append_trace(row, 1, 1)
+                for row in traces[2]:
+                    fig.append_trace(row, 2, 1)
+                py.plot(fig, filename=os.environ.get('DATA_BASE') + '/' + date + '/'+ key+'_'+str(gameID)+'_'+
+                                      teams.popitem()[0]+'_'+teams.popitem()[0]+'.html', auto_open=False)
+        except Exception as error:
+            db.conn.close()
+            exc_type, exc_obj, exc_tb = sys.exc_info()
+            fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
+            self.logger.info("Error occured: " + str(error) + ' ' + str(fname) + ' ' + str(exc_tb.tb_lineno))
+
+    def runFullProcess(self, begin, end=date.today() + timedelta(1), processFilter=['p1', 'p2', 'p3', 'p4', 'p5']):
+
+        if 'p1' in processFilter:
+            self.logger.info('p1-getting all the game ids...')
+            start = begin
+            while start != end:
+                self.getESPNgameID(start.strftime('%Y%m%d'))
+                start += timedelta(1)
+
+        if 'p2' in processFilter:
+            self.logger.info('p2-getting all the box scores...')
+            start = begin
+            while start != end:
+                self.getESPNboxScore(start.strftime('%Y%m%d'))
+                start += timedelta(1)
+
+        if 'p3' in processFilter:
+            self.logger.info('p3-saving all the json data...')
+            start = begin
+            while start != end:
+                try:
+                    with open(os.environ.get('DATA_BASE') + '/' + start.strftime('%Y%m%d') + '/' + start.strftime(
+                            '%Y%m%d')
+                                      + '_gameID', 'r')as file:
+                        gameIDs = file.read().split('\n')
+                    for key in gameIDs:
+                        self.saveGameDataJson(start.strftime('%Y%m%d'), key)
+                except:
+                    pass
+                start += timedelta(1)
+
+        if 'p4' in processFilter:
+            self.logger.info('p4-inserting json data into database...')
+            start = begin
+            while start != end:
+                try:
+                    with open(os.environ.get('DATA_BASE') + '/' + start.strftime('%Y%m%d') + '/' + start.strftime(
+                            '%Y%m%d')
+                                      + '_gameID', 'r')as file:
+                        gameIDs = file.read().split('\n')
+                    for key in gameIDs:
+                        self.insertGameDataDB(start.strftime('%Y%m%d'), key)
+                except:
+                    pass
+                start += timedelta(1)
+
+        if 'p5' in processFilter:
+            self.logger.info('p5-generating graphs...')
+            start = begin
+            while start != end:
+                try:
+                    with open(os.environ.get('DATA_BASE') + '/' + start.strftime('%Y%m%d') + '/' + start.strftime(
+                            '%Y%m%d')+ '_gameID', 'r')as file:
+                        gameIDs = file.read().split('\n')
+                    for key in gameIDs:
+                        self.generateGraphs(start.strftime('%Y%m%d'), key)
+                except:
+                    pass
+                start += timedelta(1)
+
+        self.logger.info('all done !')
 
 #sqlite class
 class sqliteDB():
@@ -284,7 +419,6 @@ class sqliteDB():
             exc_type, exc_obj, exc_tb = sys.exc_info()
             fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
             self.logger.info("Error occured: " + str(error) + ' ' + str(fname) + ' ' + str(exc_tb.tb_lineno))
-            raise Exception('Error !')
 
     def fetch(self, cmd):
         try:
@@ -300,15 +434,9 @@ class sqliteDB():
 
 if __name__ == '__main__':
     game = nbaMain()
-    start = date(2015, 7, 1)
-    end = date.today() + timedelta(1)
-    while start != end:
-        gameIDs = game.getESPNboxScore(start.strftime('%Y%m%d'))
-        for key in gameIDs:
-            game.saveGameDataJson(start.strftime('%Y%m%d'), key)
-            game.insertGameDataDB(start.strftime('%Y%m%d'), key)
-        start += timedelta(1)
+    begin = date(2017, 2, 13)
+    game.runFullProcess(begin=begin, processFilter=['p5'])
     #game.insertGameDataDB("20170102", "400899414")
-    game.saveGameDataJson("20160307", "400828826")
+    #game.saveGameDataJson("20160307", "400828826")
     #gameData = game.loadGameDataJson("20170102", "400899414")
     #player = gameData["team1bench"][2]
