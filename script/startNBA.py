@@ -162,7 +162,7 @@ class nbaMain():
             jsonData = self.loadGameDataJson(date, gameID)
             for row in jsonData["team1starters"]:
                 score = self.calculateScore(row)
-                cmd = 'INSERT INTO BOX_SCORE VALUES("'+jsonData["team1name"]+'",1,"'+row["name"]+\
+                cmd = 'INSERT OR REPLACE INTO BOX_SCORE VALUES("'+jsonData["team1name"]+'",1,"'+row["name"]+\
                       '",'+str(row["minutes"])+','+str(row["fieldGoalMade"])+','+str(row["fieldGoalAttempted"])+\
                       ','+str(row["3pointMade"])+','+str(row["3pointAttempted"])+','+str(row["freeThrowMade"])+\
                       ','+str(row["freeThrowAttempted"])+','+str(row["offensiveRebound"])+','+str(row["defensiveRebound"])\
@@ -179,7 +179,7 @@ class nbaMain():
                 db.insert(cmd)
             for row in jsonData["team1bench"]:
                 score = self.calculateScore(row)
-                cmd = 'INSERT INTO BOX_SCORE VALUES("'+jsonData["team1name"]+'",0,"'+row["name"]+\
+                cmd = 'INSERT OR REPLACE INTO BOX_SCORE VALUES("'+jsonData["team1name"]+'",0,"'+row["name"]+\
                       '",'+str(row["minutes"])+','+str(row["fieldGoalMade"])+','+str(row["fieldGoalAttempted"])+\
                       ','+str(row["3pointMade"])+','+str(row["3pointAttempted"])+','+str(row["freeThrowMade"])+\
                       ','+str(row["freeThrowAttempted"])+','+str(row["offensiveRebound"])+','+str(row["defensiveRebound"])\
@@ -196,7 +196,7 @@ class nbaMain():
                 db.insert(cmd)
             for row in jsonData["team2starters"]:
                 score = self.calculateScore(row)
-                cmd = 'INSERT INTO BOX_SCORE VALUES("'+jsonData["team2name"]+'",1,"'+row["name"]+\
+                cmd = 'INSERT OR REPLACE INTO BOX_SCORE VALUES("'+jsonData["team2name"]+'",1,"'+row["name"]+\
                       '",'+str(row["minutes"])+','+str(row["fieldGoalMade"])+','+str(row["fieldGoalAttempted"])+\
                       ','+str(row["3pointMade"])+','+str(row["3pointAttempted"])+','+str(row["freeThrowMade"])+\
                       ','+str(row["freeThrowAttempted"])+','+str(row["offensiveRebound"])+','+str(row["defensiveRebound"])\
@@ -213,7 +213,7 @@ class nbaMain():
                 db.insert(cmd)
             for row in jsonData["team2bench"]:
                 score = self.calculateScore(row)
-                cmd = 'INSERT INTO BOX_SCORE VALUES("'+jsonData["team2name"]+'",0,"'+row["name"]+\
+                cmd = 'INSERT OR REPLACE INTO BOX_SCORE VALUES("'+jsonData["team2name"]+'",0,"'+row["name"]+\
                       '",'+str(row["minutes"])+','+str(row["fieldGoalMade"])+','+str(row["fieldGoalAttempted"])+\
                       ','+str(row["3pointMade"])+','+str(row["3pointAttempted"])+','+str(row["freeThrowMade"])+\
                       ','+str(row["freeThrowAttempted"])+','+str(row["offensiveRebound"])+','+str(row["defensiveRebound"])\
@@ -239,7 +239,8 @@ class nbaMain():
     def getESPNgameID(self, cdate):
         try:
             self.logger.info("getting game ids for date="+cdate)
-            driver = webdriver.Chrome('./../../tools/chrome/chromedriver')
+            #driver = webdriver.Chrome('./../../tools/chrome/chromedriver')
+            driver = webdriver.PhantomJS('./../../tools/phantomjs/phantomjs')
             driver.set_page_load_timeout(60)
             sdate = date(int(cdate[0:4]), int(cdate[4:6]), int(cdate[6:8]))
             url = 'http://www.espn.com/nba/scoreboard/_/date/' + sdate.strftime('%Y%m%d')
@@ -306,7 +307,7 @@ class nbaMain():
                 teams = {}
                 teamCount = 0
                 traces = {1: [], 2: []}
-                self.logger.info('making graph for key='+key+' for gameID='+str(gameID))
+                self.logger.info('making graph for key='+key+' for gameID='+str(gameID)+' and date='+date)
                 for row in result:
                     if row[2] not in teams.keys():
                         teams[row[2]] = teamCount + 1
@@ -434,8 +435,8 @@ class sqliteDB():
 
 if __name__ == '__main__':
     game = nbaMain()
-    begin = date(2017, 2, 13)
-    game.runFullProcess(begin=begin, processFilter=['p5'])
+    begin = date(2017, 11, 5)
+    game.runFullProcess(begin=begin, processFilter=['p1', 'p2', 'p3', 'p4'])
     #game.insertGameDataDB("20170102", "400899414")
     #game.saveGameDataJson("20160307", "400828826")
     #gameData = game.loadGameDataJson("20170102", "400899414")

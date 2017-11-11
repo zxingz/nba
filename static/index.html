@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<title>Lineup Optimizer</title>
+	<script type="text/javascript" src="//code.jquery.com/jquery-2.1.4.min.js"></script>
+    <script type="text/javascript" src="//cdnjs.cloudflare.com/ajax/libs/socket.io/1.3.5/socket.io.min.js"></script>
+    <script type="text/javascript" charset="utf-8">
+        $(document).ready(function(){
+            namespace = '/test';
+            var socket = io.connect('http://' + document.domain + ':' + location.port + namespace);
+            socket.on('connect', function() {
+                socket.emit('my event', {data: 'I\'m connected!'});
+            });
+            socket.on('disconnect', function() {
+                $('#log').append('\nDisconnected');
+            });
+            socket.on('my response', function(msg) {
+                $('#log').val(msg.data + '\n' + $('#log').val());
+            });
+        });
+    </script>
+</head>
+<body>
+<h2>Console:</h2>
+	<textarea disabled style="width: 85%; height: 600px; margin-left: 5%" id="log">Starting Log...
+	</textarea>
+</body>
+</html>
